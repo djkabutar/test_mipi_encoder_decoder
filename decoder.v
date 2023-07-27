@@ -49,6 +49,7 @@ wire [47:0] align_fifo_out_data;
 wire align_fifo_empty;
 
 reg align_fifo_rst = 1;
+reg [23:0] data_cnt = 0;
 
 assign mipi_data_al = {
                         mipi_rx_data[7:0],
@@ -58,7 +59,6 @@ assign mipi_data_al = {
                         mipi_rx_data[39:32],
                         mipi_rx_data[47:40]
                     };
-                    
 // assign mipi_data_al = mipi_rx_data[47:0];
                     
 fifo #(
@@ -103,30 +103,35 @@ always @(posedge rx_pixel_clk) begin
                 align_state <= 1;
                 temp_data[47:40] <= SOF[47:40];
             end
+            align_fifo_rst <= 1'b1;
         end
         
         1: begin
             if ((mipi_data_al[47:40] == SOF[7:0]) && (j == 1)) begin
                 aligned_data <= {temp_data[47:8], mipi_data_al[47:40]};
                 temp_data[47:8] <= mipi_data_al[39:0];
+                data_cnt <= mipi_data_al[31:8];
                 align_fifo_we <= 1;
                 align_state <= 2;
             end
             else if ((mipi_data_al[47:32] == SOF[15:0]) && (j == 2)) begin
                 aligned_data <= {temp_data[47:16], mipi_data_al[47:32]};
                 temp_data[47:16] <= mipi_data_al[31:0];
+                data_cnt <= mipi_data_al[23:0];
                 align_fifo_we <= 1;
                 align_state <= 2;
             end
             else if ((mipi_data_al[47:24] == SOF[23:0]) && (j == 3)) begin
                 aligned_data <= {temp_data[47:24], mipi_data_al[47:24]};
                 temp_data[47:24] <= mipi_data_al[23:0];
+                data_cnt[23:8] <= mipi_data_al[15:0];
                 align_fifo_we <= 1;
                 align_state <= 2;
             end
             else if ((mipi_data_al[47:16] == SOF[31:0]) && (j == 4)) begin
                 aligned_data <= {temp_data[47:32], mipi_data_al[47:16]};
                 temp_data[47:32] <= mipi_data_al[15:0];
+                data_cnt[23:16] <= mipi_data_al[7:0];
                 align_fifo_we <= 1;
                 align_state <= 2;
             end
@@ -145,98 +150,214 @@ always @(posedge rx_pixel_clk) begin
             case (j)
                 0: begin
                     aligned_data <= mipi_data_al;
-                    if (mipi_data_al == EOF) begin
-                        align_state <= 4;
-                    end
+                    data_cnt <= mipi_data_al[39:16];
+                    align_state <= 3;
                 end
                 
                 1: begin
                     aligned_data <= {temp_data[47:8], mipi_data_al[47:40]};
                     temp_data[47:8] <= mipi_data_al[39:0];
-                    if (mipi_data_al[39:0] == EOF[47:8])
-                        align_state <= 3;
+                    align_state <= 3;
                 end
                 
                 2: begin
                     aligned_data <= {temp_data[47:16], mipi_data_al[47:32]};
                     temp_data[47:16] <= mipi_data_al[31:0];
-                    if (mipi_data_al[31:0] == EOF[47:16])
-                        align_state <= 3;
+                    align_state <= 3;
                 end
                 
                 3: begin
                     aligned_data <= {temp_data[47:24], mipi_data_al[47:24]};
                     temp_data[47:24] <= mipi_data_al[23:0];
-                    if (mipi_data_al[23:0] == EOF[47:24])
-                        align_state <= 3;
+                    data_cnt[7:0] <= mipi_data_al[47:40];
+                    align_state <= 3;
                 end
                 
                 4: begin
                     aligned_data <= {temp_data[47:32], mipi_data_al[47:16]};
                     temp_data[47:32] <= mipi_data_al[15:0];
-                    if (mipi_data_al[15:0] == EOF[47:32])
-                        align_state <= 3;
+                    data_cnt[15:0] <= mipi_data_al[47:32];
+                    align_state <= 3;
                 end
                 
                 5: begin
                     aligned_data <= {temp_data[47:40], mipi_data_al[47:8]};
                     temp_data[47:40] <= mipi_data_al[7:0];
-                    if (mipi_data_al[7:0] == EOF[47:40])
-                        align_state <= 3;
+                    data_cnt <= mipi_data_al[47:24];
+                    align_state <= 3;
                 end
             endcase
         end
         
         3: begin
+            case (j)
+                0: begin
+                    aligned_data <= mipi_data_al;
+                    if (data_cnt == 0) begin
+                        if (mipi_data_al == EOF) begin
+                            align_state <= 5;
+                        end else begin
+                            align_state <= 0;
+                            align_fifo_we <= 0;
+                            align_fifo_rst <= 0;
+                        end
+                    end else begin
+                        data_cnt <= data_cnt - 1;
+                    end
+                end
+
+                1: begin
+                    aligned_data <= {temp_data[47:8], mipi_data_al[47:40]};
+                    temp_data[47:8] <= mipi_data_al[39:0];
+
+                    if (data_cnt == 1) begin
+                        if (mipi_data_al[39:0] == EOF[47:8])
+                            align_state <= 4;
+                        else begin
+                            align_state <= 0;
+                            align_fifo_we <= 0;
+                            align_fifo_rst <= 0;
+                        end
+                    end else begin
+                        data_cnt <= data_cnt - 1;
+                    end
+                end
+
+                2: begin
+                    aligned_data <= {temp_data[47:16], mipi_data_al[47:32]};
+                    temp_data[47:16] <= mipi_data_al[31:0];
+
+                    if (data_cnt == 1) begin
+                        if (mipi_data_al[31:0] == EOF[47:16])
+                            align_state <= 4;
+                        else begin
+                            align_state <= 0;
+                            align_fifo_we <= 0;
+                            align_fifo_rst <= 0;
+                        end
+                    end else begin
+                        data_cnt <= data_cnt - 1;
+                    end
+                end
+                
+                3: begin
+                    aligned_data <= {temp_data[47:24], mipi_data_al[47:24]};
+                    temp_data[47:24] <= mipi_data_al[23:0];
+
+                    if (data_cnt == 1) begin
+                        if (mipi_data_al[23:0] == EOF[47:24])
+                            align_state <= 4;
+                        else begin
+                            align_state <= 0;
+                            align_fifo_we <= 0;
+                            align_fifo_rst <= 0;
+                        end
+                    end else begin
+                        data_cnt <= data_cnt - 1;
+                    end
+                end
+
+                4: begin
+                    aligned_data <= {temp_data[47:32], mipi_data_al[47:16]};
+                    temp_data[47:32] <= mipi_data_al[15:0];
+
+                    if (data_cnt == 1) begin
+                        if (mipi_data_al[15:0] == EOF[47:32])
+                            align_state <= 4;
+                        else begin
+                            align_state <= 0;
+                            align_fifo_we <= 0;
+                            align_fifo_rst <= 0;
+                        end
+                    end else begin
+                        data_cnt <= data_cnt - 1;
+                    end
+                end
+
+                5: begin
+                    aligned_data <= {temp_data[47:40], mipi_data_al[47:8]};
+                    temp_data[47:40] <= mipi_data_al[7:0];
+
+                    if (data_cnt == 1) begin
+                        if (mipi_data_al[7:0] == EOF[47:40])
+                            align_state <= 4;
+                        else begin
+                            align_state <= 0;
+                            align_fifo_we <= 0;
+                            align_fifo_rst <= 0;
+                        end
+                    end else begin
+                        data_cnt <= data_cnt - 1;
+                    end
+                end
+            endcase
+        end
+        
+        4: begin
             case(j)
                 1: begin
                     aligned_data <= {temp_data[47:8], mipi_data_al[47:40]};
                     
                     if (mipi_data_al[47:40] == EOF[7:0])
-                        align_state <= 4;
-                    else
-                        align_state <= 2;
+                        align_state <= 5;
+                    else begin
+                        align_state <= 0;
+                        align_fifo_we <= 0;
+                        align_fifo_rst <= 0;
+                    end
                 end
                 
                 2: begin
                     aligned_data <= {temp_data[47:16], mipi_data_al[47:32]};
                     
                     if (mipi_data_al[47:32] == EOF[15:0])
-                        align_state <= 4;
-                    else
-                        align_state <= 2;
+                        align_state <= 5;
+                    else begin
+                        align_state <= 0;
+                        align_fifo_we <= 0;
+                        align_fifo_rst <= 0;
+                    end
                 end
                 
                 3: begin
                     aligned_data <= {temp_data[47:24], mipi_data_al[47:24]};
                     
                     if (mipi_data_al[47:24] == EOF[23:0])
-                        align_state <= 4;
-                    else
-                        align_state <= 2;
+                        align_state <= 5;
+                    else begin
+                        align_state <= 0;
+                        align_fifo_we <= 0;
+                        align_fifo_rst <= 0;
+                    end
                 end
                 
                 4: begin
                     aligned_data <= {temp_data[47:32], mipi_data_al[47:16]};
                     
                     if (mipi_data_al[47:16] == EOF[31:0])
-                        align_state <= 4;
-                    else
-                        align_state <= 2;
+                        align_state <= 5;
+                    else begin
+                        align_state <= 0;
+                        align_fifo_we <= 0;
+                        align_fifo_rst <= 0;
+                    end
                 end
                 
                 5: begin
                     aligned_data <= {temp_data[47:40], mipi_data_al[47:8]};
                     
                     if (mipi_data_al[47:8] == EOF[39:0])
-                        align_state <= 4;
-                    else
-                        align_state <= 2;
+                        align_state <= 5;
+                    else begin
+                        align_state <= 0;
+                        align_fifo_we <= 0;
+                        align_fifo_rst <= 0;
+                    end
                 end
             endcase
         end
         
-        4: begin
+        5: begin
             align_fifo_we <= 0;
             align_state <= 0;
         end
@@ -273,11 +394,10 @@ udg u1 (
 always @(posedge rx_pixel_clk) begin
     case (mipi_rx_state)
         IDLE: begin
-            if (~align_fifo_empty & ~align_fifo_we) begin
+            if (~align_fifo_empty & ~align_fifo_we & align_fifo_rst) begin
                 align_fifo_re <= 1;
                 mipi_rx_state <= 7;
             end
-            align_fifo_rst <= 1'b1;
         end
         
         7: begin
@@ -288,7 +408,6 @@ always @(posedge rx_pixel_clk) begin
             if (align_fifo_out_data == SOF) begin
                 mipi_rx_state <= GET_METADATA;
             end else begin
-                align_fifo_rst <= 0;
                 mipi_rx_state <= IDLE;
             end
         end
