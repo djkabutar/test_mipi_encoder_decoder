@@ -16,7 +16,7 @@ module uart_tx
   localparam TX_STOP_BIT  = 2'b11;
   
   reg [2:0] r_SM_Main;
-  reg [12:0] r_Clock_Count;
+  reg [17:0] r_Clock_Count;
   reg [2:0] r_Bit_Index;
   reg [7:0] r_TX_Data;
 
@@ -144,7 +144,7 @@ module uart_rx
 		parameter RX_STOP_BIT = 3'b011;
 		parameter CLEANUP = 3'b100;
 		
-		reg[12:0] r_Clock_Count;
+		reg[17:0] r_Clock_Count;
 		reg[2:0] r_Bit_Index;
 		reg[7:0] r_RX_Byte;
 		reg r_RX_DV;
