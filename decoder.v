@@ -4,11 +4,14 @@ module decoder (
     input           mipi_rx_valid,
     
     input           uart_fifo_re,
+    input           i2c_fifo_re,
     
     output [7:0]    uart_data,
+    output [7:0]    i2c_data,
     output reg      uart_fifo_we = 0,
+    output reg      i2c_fifo_we = 0,
     output          uart_fifo_empty,
-    output          debug_pin
+    output          i2c_fifo_empty
 );
 
 parameter SOF = 48'hEA_FF_99_DE_AD_FF,
@@ -408,19 +411,11 @@ fifo #(
     .occupants(occupants)
 );
 
-udg u1 (
-    .clk(rx_pixel_clk),
-    .rst(1'b1),
-    .fifo_we(align_fifo_re),
-    .data_in(align_fifo_out_data),
-    .tx(debug_pin),
-    .full()
-);
-
 always @(posedge rx_pixel_clk) begin
     case (mipi_rx_state)
         IDLE: begin
             if (~align_fifo_empty & ~align_fifo_we & align_fifo_rst) begin
+            // if (~align_fifo_empty & align_fifo_rst) begin
                 align_fifo_re <= 1;
                 mipi_rx_state <= 7;
             end
@@ -485,9 +480,11 @@ localparam IDLE_UART = 0,
 
 reg [2:0] uart_tx_state = 0;
 reg [7:0] uart_fifo_data_in = 0;
+reg [7:0] i2c_fifo_data_in = 0;
 reg [2:0] cnt = 0;
 
 wire [7:0] uart_fifo_data_out = 0;
+wire [7:0] i2c_fifo_data_out = 0;
 
 wire [7:0] data_to_process = mask == 1 ? 1 : (mask == 3 ? 2 : 
                              (mask == 7 ? 3 : (mask == 15 ? 4 : 
@@ -510,6 +507,7 @@ always @(posedge rx_pixel_clk) begin
     case (uart_tx_state)
         IDLE_UART: begin
             if (~mipi_rx_fifo_empty & ~we_mipi_rx_fifo) begin
+            // if (~mipi_rx_fifo_empty) begin
                 mipi_rx_fifo_re <= 1'b1;
                 cnt <= occupants == 1 ? data_to_process : 6;
                 uart_tx_state <= FIRST_DATA;
@@ -525,12 +523,20 @@ always @(posedge rx_pixel_clk) begin
         
         FILL_DATA: begin
             if (cnt == 0) begin
-                uart_fifo_we <= 0;
+                if (app_id == 7)
+                    i2c_fifo_we <= 0;
+                else
+                    uart_fifo_we <= 0;
                 uart_tx_state <= IDLE_UART;
             end else begin
                 cnt <= cnt - 1;
-                uart_fifo_data_in <= mipi_rx_fifo_out_data[(cnt * 8) - 1 -: 8];
-                uart_fifo_we <= 1;
+                if (app_id == 7) begin
+                    i2c_fifo_data_in <= mipi_rx_fifo_out_data[(cnt * 8) - 1 -: 8];
+                    i2c_fifo_we <= 1;
+                end else begin
+                    uart_fifo_data_in <= mipi_rx_fifo_out_data[(cnt * 8) - 1 -: 8];
+                    uart_fifo_we <= 1;
+                end   
             end
         end
         
@@ -539,5 +545,18 @@ always @(posedge rx_pixel_clk) begin
         end
     endcase
 end
+
+fifo #(
+    .DATA_WIDTH(8),
+    .ADDR_WIDTH(12)
+) i2c_fifo (
+    .clk(rx_pixel_clk),
+    .rst_n(1'b1),
+    .data_in(i2c_fifo_data_in),
+    .we(i2c_fifo_we),
+    .re(i2c_fifo_re),
+    .data_out(i2c_data),
+    .empty(i2c_fifo_empty)
+);
 
 endmodule
